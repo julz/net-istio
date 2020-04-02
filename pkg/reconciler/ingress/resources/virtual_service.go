@@ -169,6 +169,27 @@ func makeVirtualServiceRoute(hosts sets.String, http *v1alpha1.HTTPIngressPath, 
 		}
 		matches = append(matches, makeMatch(host, http.Path, g))
 	}
+
+	// hello, I'd like to perform an ugly hack:
+	// given that the Host header has been overridden, we're going to treat this as a redirect and
+	// rewrite the incoming request before forwarding back to ourselves (i.e. the gateway).
+	// Sorry, blame istio. Or me, if there's a better way to do this I missed.
+	if hostHeader, ok := http.AppendHeaders["Host"]; ok {
+		return &istiov1alpha3.HTTPRoute{
+			Match: matches,
+			Rewrite: &istiov1alpha3.HTTPRewrite{
+				Authority: hostHeader,
+			},
+			Route: []*istiov1alpha3.HTTPRouteDestination{{
+				Destination: &istiov1alpha3.Destination{
+					Host: "cluster-local-gateway.istio-system.svc.cluster.local", // FIXME: unhardcode this
+					Port: &istiov1alpha3.PortSelector{Number: 80},
+				}},
+			},
+		}
+		// FIXME: need to add the rest of the headers and the retry/timeout stuff back..
+	}
+
 	weights := []*istiov1alpha3.HTTPRouteDestination{}
 	for _, split := range http.Splits {
 
